@@ -52,7 +52,10 @@ export function layoutPanels(layout, w, h) {
 
 /** The default state of a fresh cover. */
 export function defaultState() {
-  const panel = (photo) => ({ photo, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.12 });
+  // The anchor sits a quarter down the photo's overflow: wide panels crop a
+  // portrait photo's height hard, and faces usually sit in its top third, so
+  // the default anchor frames the face instead of the forehead.
+  const panel = (photo) => ({ photo, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.24 });
   return {
     layout: 'poster',
     size: '1080x1350',
@@ -72,15 +75,15 @@ export function parseSize(size) {
 }
 
 const GRADE_FILTERS = {
-  sunset: 'saturate(1.35) contrast(1.08) sepia(0.28) hue-rotate(-12deg)',
-  neon: 'saturate(1.9) contrast(1.12) hue-rotate(28deg)',
+  sunset: 'saturate(1.55) contrast(1.12) sepia(0.48) hue-rotate(-18deg) brightness(1.03)',
+  neon: 'saturate(2.1) contrast(1.14) hue-rotate(28deg) brightness(1.02)',
   mono: 'grayscale(1) contrast(1.12) brightness(1.06)',
   original: 'none',
 };
 
 const GRADE_TINTS = {
-  sunset: ['rgba(255, 122, 60, 0.16)', 'rgba(200, 40, 120, 0.22)'],
-  neon: ['rgba(255, 79, 216, 0.14)', 'rgba(55, 230, 255, 0.14)'],
+  sunset: ['rgba(255, 122, 60, 0.26)', 'rgba(200, 40, 120, 0.3)'],
+  neon: ['rgba(255, 79, 216, 0.2)', 'rgba(55, 230, 255, 0.2)'],
   mono: null,
   original: null,
 };
@@ -139,7 +142,7 @@ function drawTitle(ctx, w, h, band, title, subtitle, scale) {
   ctx.textAlign = 'center';
   ctx.textBaseline = 'alphabetic';
   if (text) {
-    let size = h * 0.104 * scale;
+    let size = h * 0.115 * scale;
     ctx.font = `${size}px Anton, "Arial Narrow", sans-serif`;
     while (ctx.measureText(text).width > w * 0.94 && size > 14) {
       size -= 2;
@@ -148,9 +151,14 @@ function drawTitle(ctx, w, h, band, title, subtitle, scale) {
     const ty = band.y + band.h * 0.58;
     ctx.lineJoin = 'round';
     ctx.strokeStyle = '#12081f';
-    ctx.lineWidth = Math.max(3, size * 0.09);
+    ctx.lineWidth = Math.max(3, size * 0.1);
     ctx.strokeText(text, w / 2, ty);
-    ctx.fillStyle = '#ffffff';
+    // Warm gradient fill: white at the top fading to pale gold, so the title
+    // glows against the sky instead of sitting flat on it.
+    const fill = ctx.createLinearGradient(0, ty - size, 0, ty);
+    fill.addColorStop(0, '#ffffff');
+    fill.addColorStop(1, '#ffe9a8');
+    ctx.fillStyle = fill;
     ctx.shadowColor = 'rgba(255, 46, 136, 0.65)';
     ctx.shadowBlur = size * 0.16;
     ctx.shadowOffsetY = size * 0.03;
@@ -160,6 +168,12 @@ function drawTitle(ctx, w, h, band, title, subtitle, scale) {
   }
   if (sub) {
     const size = Math.max(12, h * 0.026 * scale);
+    // A dark strip behind the subtitle: the skyline runs right through this
+    // line, so the words get their own readable ground first.
+    const stripH = size * 1.9;
+    const stripY = band.y + band.h * 0.88 - stripH * 0.72;
+    ctx.fillStyle = 'rgba(10, 2, 20, 0.55)';
+    ctx.fillRect(0, stripY, w, stripH);
     ctx.font = `${size}px Anton, "Arial Narrow", sans-serif`;
     try {
       ctx.letterSpacing = `${Math.max(2, size * 0.22)}px`;
@@ -207,6 +221,14 @@ export function drawCover(canvas, state, photos, highlight = false) {
     }
   });
   drawTitle(ctx, w, h, band, state.title, state.subtitle, state.titleScale);
+  // A thin neon rule where the panels meet the title band, tying the
+  // poster together instead of letting the two halves just butt up.
+  const rule = ctx.createLinearGradient(0, 0, w, 0);
+  rule.addColorStop(0, 'rgba(255, 46, 136, 0)');
+  rule.addColorStop(0.5, 'rgba(255, 46, 136, 0.85)');
+  rule.addColorStop(1, 'rgba(255, 46, 136, 0)');
+  ctx.fillStyle = rule;
+  ctx.fillRect(0, band.y - Math.max(2, w * 0.002), w, Math.max(2, w * 0.004));
   // A thin white frame around the whole cover, so it reads as a poster.
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.92)';
   ctx.lineWidth = Math.max(2, w * 0.005);

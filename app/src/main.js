@@ -39,7 +39,24 @@ function redraw() {
     canvas.width = pw;
     canvas.height = ph;
   }
+  const readout = document.getElementById('sizeReadout');
+  if (readout) readout.textContent = `Preview: ${w} × ${h} — export PNG`;
   drawCover(canvas, state, photos, true);
+}
+
+/** Frames every repeated photo differently, so a poster never shows the
+ *  same shot twice. The first use of a photo keeps its framing; later uses
+ *  cycle through the varied framings. */
+function varyRepeatFraming() {
+  state.panels.forEach((p, i) => {
+    const seen = state.panels.slice(0, i).filter((q) => q.photo === p.photo).length;
+    if (seen > 0 && p.photo != null) {
+      const f = REPEAT_FRAMINGS[1 + ((i + seen - 1) % (REPEAT_FRAMINGS.length - 1))];
+      p.zoom = f.zoom;
+      p.panX = f.panX;
+      p.panY = f.panY;
+    }
+  });
 }
 
 /** Rebuilds the photo tray and the panel photo dropdown from the photo list. */
@@ -102,7 +119,7 @@ bindSegmented('layouts', 'layout', (layout) => {
   state.layout = layout;
   const count = { poster: 3, grid: 4, trio: 3 }[layout];
   while (state.panels.length < count) {
-    state.panels.push({ photo: state.panels[0]?.photo ?? null, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.12 });
+    state.panels.push({ photo: state.panels[0]?.photo ?? null, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.24 });
   }
   state.panels.length = count;
   state.selected = Math.min(state.selected, count - 1);
@@ -170,16 +187,66 @@ document.getElementById('photos').addEventListener('change', async (e) => {
   status.textContent = `${e.target.files.length} photo(s) added.`;
 });
 
+/** Framings that keep one photo from looking cloned across panels: each
+ *  panel gets its own zoom and pan, so the same photo reads as a new shot. */
+const REPEAT_FRAMINGS = [
+  { zoom: 1, panX: 0, panY: 0 },
+  { zoom: 1.5, panX: -0.3, panY: 0.1 },
+  { zoom: 1.25, panX: 0.35, panY: -0.1 },
+  { zoom: 1.7, panX: 0.1, panY: 0.15 },
+];
+
+/** Syncs the segmented buttons with the state (used after a surprise pick). */
+function syncSegments() {
+  for (const [id, attr, value] of [['layouts', 'layout', state.layout], ['sizes', 'size', state.size], ['skies', 'sky', state.sky]]) {
+    for (const b of document.getElementById(id).querySelectorAll('button')) {
+      b.classList.toggle('on', b.dataset[attr] === value);
+    }
+  }
+}
+
 document.getElementById('fillAll').addEventListener('click', () => {
   const photo = state.panels[state.selected].photo;
   if (photo == null) {
     status.textContent = 'Pick a photo for the selected panel first.';
     return;
   }
-  for (const p of state.panels) p.photo = photo;
+  for (const [i, p] of state.panels.entries()) {
+    p.photo = photo;
+    const f = REPEAT_FRAMINGS[i % REPEAT_FRAMINGS.length];
+    p.zoom = f.zoom;
+    p.panX = f.panX;
+    p.panY = f.panY;
+  }
   refreshPhotoUI();
   redraw();
-  status.textContent = 'Every panel now uses the selected photo.';
+  status.textContent = 'Every panel now uses the selected photo, each framed differently.';
+});
+
+// One click: a new layout, a new sky and fresh grades, so a cover is one
+// tap away when the user does not want to fiddle with every control.
+document.getElementById('surprise').addEventListener('click', () => {
+  const layouts = ['poster', 'grid', 'trio'];
+  const skies = ['sunset', 'neon'];
+  state.layout = layouts[Math.floor(Math.random() * layouts.length)];
+  state.sky = skies[Math.floor(Math.random() * skies.length)];
+  const count = { poster: 3, grid: 4, trio: 3 }[state.layout];
+  while (state.panels.length < count) {
+    state.panels.push({ photo: state.panels[0]?.photo ?? null, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.24 });
+  }
+  state.panels.length = count;
+  state.selected = Math.min(state.selected, count - 1);
+  state.panels.forEach((p, i) => {
+    const f = REPEAT_FRAMINGS[i % REPEAT_FRAMINGS.length];
+    p.zoom = f.zoom;
+    p.panX = f.panX;
+    p.panY = f.panY;
+    p.grade = Math.random() > 0.5 ? 'sunset' : 'neon';
+  });
+  syncSegments();
+  refreshPanelUI();
+  redraw();
+  status.textContent = `Surprise: ${state.layout} layout, ${state.sky} sky.`;
 });
 
 // Clicking the preview picks the panel under the pointer.
@@ -247,15 +314,17 @@ async function runShot(query) {
   document.getElementById('title').value = state.title;
   document.getElementById('subtitle').value = state.subtitle;
   const count = { poster: 3, grid: 4, trio: 3 }[state.layout];
-  while (state.panels.length < count) state.panels.push({ photo: photoIdx, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.12 });
+  while (state.panels.length < count) state.panels.push({ photo: photoIdx, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.24 });
   state.panels.length = count;
   // Alternate the two sample photos across the panels, so the cover never
-  // repeats the same photo in every panel.
+  // repeats the same photo in every panel, and frame each repeat
+  // differently so no two panels show the same shot.
   const other = photoNames.findIndex((n) => !n.startsWith(photo));
   state.panels.forEach((p, i) => {
     p.photo = i % 2 === 0 ? photoIdx : (other >= 0 ? other : photoIdx);
     p.grade = query.get('grade') ?? p.grade;
   });
+  varyRepeatFraming();
   refreshPanelUI();
   // In cover mode the canvas draws at full export size for a crisp shot.
   if (shot === 'cover') {
@@ -283,6 +352,7 @@ const query = new URLSearchParams(location.search);
   }
   if (query.get('shot')) await runShot(query);
   else {
+    varyRepeatFraming();
     refreshPanelUI();
     redraw();
   }

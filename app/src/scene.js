@@ -22,6 +22,7 @@ const SKIES = {
     sunCore: '#fff3c4',
     glow: 'rgba(255, 122, 60, 0.55)',
     building: '#1c0a2e',
+    far: '#452064',
     window: '#ffd76a',
     palm: '#160722',
     star: 'rgba(255, 255, 255, 0.7)',
@@ -32,6 +33,7 @@ const SKIES = {
     sunCore: '#ffe3f6',
     glow: 'rgba(255, 79, 216, 0.5)',
     building: '#0a0318',
+    far: '#2c1156',
     window: '#37e6ff',
     palm: '#070213',
     star: 'rgba(255, 255, 255, 0.85)',
@@ -65,11 +67,27 @@ export function drawScene(ctx, w, h, sky, band) {
     ctx.fill();
   }
 
-  // The sun: a big disc low over the title band, slatted across its lower half.
-  // It sits right of centre so the title never swallows it whole.
-  const sunR = band.h * 0.72;
+  // A few tiny birds crossing the upper sky, for a lived-in feel.
+  ctx.strokeStyle = 'rgba(20, 6, 30, 0.55)';
+  ctx.lineWidth = Math.max(1.5, w * 0.0016);
+  ctx.lineCap = 'round';
+  for (let i = 0; i < 6; i++) {
+    const bx = w * (0.08 + rand() * 0.6);
+    const by = h * (0.05 + rand() * 0.16);
+    const span = w * (0.008 + rand() * 0.008);
+    ctx.beginPath();
+    ctx.moveTo(bx - span, by);
+    ctx.quadraticCurveTo(bx - span * 0.4, by - span * 0.7, bx, by);
+    ctx.quadraticCurveTo(bx + span * 0.4, by - span * 0.7, bx + span, by);
+    ctx.stroke();
+  }
+
+  // The sun: a big disc high over the title band, slatted across its lower
+  // half. It sits right of centre and high enough that the title below it
+  // never swallows it whole, and its slats never cross the lettering.
+  const sunR = band.h * 0.62;
   const sunX = w * 0.8;
-  const sunY = band.y + band.h * 0.32;
+  const sunY = band.y + band.h * 0.2;
   const halo = ctx.createRadialGradient(sunX, sunY, sunR * 0.2, sunX, sunY, sunR * 2.1);
   halo.addColorStop(0, pal.glow);
   halo.addColorStop(1, 'rgba(0, 0, 0, 0)');
@@ -99,32 +117,20 @@ export function drawScene(ctx, w, h, sky, band) {
   }
   ctx.restore();
 
-  // Skyline: dark towers with a few lit windows, standing on the band's floor.
+  // A warm glow hugging the horizon, so the skyline sits in light instead
+  // of against a flat gradient.
+  const horizon = ctx.createLinearGradient(0, band.y + band.h * 0.35, 0, band.y + band.h);
+  horizon.addColorStop(0, 'rgba(255, 122, 60, 0)');
+  horizon.addColorStop(1, pal.glow);
+  ctx.fillStyle = horizon;
+  ctx.fillRect(0, band.y + band.h * 0.35, w, band.h * 0.65);
+
+  // Skyline in two layers: a lighter far row of towers, then the dark near
+  // row in front of it, both standing on the band's floor. The far layer
+  // gives the band depth instead of one flat black strip.
   const floorY = band.y + band.h;
-  const baseY = band.y + band.h * 0.52;
-  ctx.fillStyle = pal.building;
-  let bx = 0;
-  while (bx < w) {
-    const bw = w * (0.05 + rand() * 0.09);
-    const bh = band.h * (0.28 + rand() * 0.42);
-    ctx.fillRect(bx, baseY + (band.h * 0.7 - bh), bw, bh + band.h * 0.3);
-    // Aerial on some towers.
-    if (rand() > 0.6) {
-      ctx.fillRect(bx + bw / 2 - 1, baseY + (band.h * 0.7 - bh) - band.h * 0.12, 2, band.h * 0.12);
-    }
-    bx += bw + w * 0.008;
-  }
-  // Lit windows, sparse and warm (or cyan at night).
-  ctx.fillStyle = pal.window;
-  for (let i = 0; i < 90; i++) {
-    const wx = rand() * w;
-    const wy = baseY + rand() * band.h * 0.42;
-    const ww = Math.max(2, w * 0.004);
-    const wh = Math.max(2, h * 0.003);
-    ctx.globalAlpha = 0.35 + rand() * 0.6;
-    ctx.fillRect(wx, wy, ww, wh);
-  }
-  ctx.globalAlpha = 1;
+  skylineRow(ctx, rand, w, band, band.y + band.h * 0.62, pal.far, pal.window, 46, 0.18, 0.4, false);
+  skylineRow(ctx, rand, w, band, band.y + band.h * 0.55, pal.building, pal.window, 90, 0.3, 0.55, true);
 
   // Two palm silhouettes framing the band, left and right.
   drawPalm(ctx, w * 0.045, floorY, band.h * 0.95, -0.22, pal.palm);
@@ -136,6 +142,34 @@ export function drawScene(ctx, w, h, sky, band) {
   vig.addColorStop(1, 'rgba(10, 2, 20, 0.38)');
   ctx.fillStyle = vig;
   ctx.fillRect(0, 0, w, h);
+}
+
+/** One row of skyline towers with lit windows, standing on the band's floor.
+ *  `baseY` is where the row's feet sit; towers rise `minH` to `maxH` of the
+ *  band above it, and `aerials` adds thin antennae to some towers. */
+function skylineRow(ctx, rand, w, band, baseY, color, windowColor, windows, minH, maxH, aerials) {
+  ctx.fillStyle = color;
+  let bx = 0;
+  while (bx < w) {
+    const bw = w * (0.05 + rand() * 0.09);
+    const bh = band.h * (minH + rand() * (maxH - minH));
+    const top = baseY + (band.h * 0.7 - bh);
+    ctx.fillRect(bx, top, bw, bh + band.h * 0.3);
+    if (aerials && rand() > 0.6) {
+      ctx.fillRect(bx + bw / 2 - 1, top - band.h * 0.12, 2, band.h * 0.12);
+    }
+    bx += bw + w * 0.008;
+  }
+  ctx.fillStyle = windowColor;
+  for (let i = 0; i < windows; i++) {
+    const wx = rand() * w;
+    const wy = baseY + rand() * band.h * 0.42;
+    const ww = Math.max(2, w * 0.004);
+    const wh = Math.max(2, band.h * 0.014);
+    ctx.globalAlpha = 0.3 + rand() * 0.6;
+    ctx.fillRect(wx, wy, ww, wh);
+  }
+  ctx.globalAlpha = 1;
 }
 
 /** The sky colour partway down, used to paint the sun's slats. */
