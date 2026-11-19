@@ -14,6 +14,7 @@
 <main class="app">
   <section class="stage">
     <canvas id="cover" width="1080" height="1080" aria-label="Cover preview"></canvas>
+    <p id="sizeReadout" class="size-readout">Preview: 1080 × 1350 — export PNG</p>
     <p class="hint">Click a panel on the cover to select it, then change its photo, zoom and grade on the right.</p>
   </section>
   <aside class="panel">
@@ -32,6 +33,7 @@
         <button type="button" data-layout="grid" class="seg">Grid</button>
         <button type="button" data-layout="trio" class="seg">Trio</button>
       </div>
+      <button id="surprise" type="button" class="surprise">Surprise me — new layout &amp; sky</button>
       <div class="row" id="sizes" role="group" aria-label="Export size">
         <button type="button" data-size="1080x1080" class="seg">1080 × 1080</button>
         <button type="button" data-size="1080x1350" class="seg on">1080 × 1350</button>
