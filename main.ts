@@ -35,6 +35,17 @@ mkdirSync(outDir, { recursive: true });
 copyTree(join(repoRoot, 'app'), join(outDir, 'app'));
 copyTree(join(repoRoot, 'screenshots'), join(outDir, 'screenshots'));
 
+// Preflight: the gate refuses an entry with a missing or oversize
+// screenshot, so fail loudly here instead of handing in a bad bundle.
+const shotDir = join(outDir, 'screenshots');
+for (const name of readdirSync(shotDir)) {
+  if (name.startsWith('.')) continue;
+  const size = statSync(join(shotDir, name)).size;
+  if (size > 262144) throw new Error(`screenshot ${name} is ${size} bytes, over the 256 KiB cap`);
+}
+const shotCount = readdirSync(shotDir).filter((n) => !n.startsWith('.')).length;
+if (shotCount < 3 || shotCount > 4) throw new Error(`expected 3 or 4 screenshots, found ${shotCount}`);
+
 // The scorer's own caps for this bounty: the text cap shapes the dossier's
 // bytes, the rest refuse an entry the scorer would refuse anyway (too many
 // screenshots, one too large, or an app/ past its file and size caps).
@@ -48,3 +59,7 @@ writeFileSync(
     app_path_max_bytes: 1000,
   }),
 );
+
+// A one-line receipt on stdout, so a local run shows what went in.
+const appCount = readdirSync(join(outDir, 'app'), { recursive: true }).length;
+console.log(`Vice Cover handed in: ${appCount} app entries, ${shotCount} screenshots, dossier written to ${join(outDir, 'dossier.json')}`);
