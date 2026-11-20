@@ -2,7 +2,7 @@
 // crop and grade controls, caption editing, PNG export, and the fixed ?shot=
 // scenes the screenshots use. The cover itself is drawn by cover.js.
 
-import { drawCover, defaultState, layoutPanels, parseSize } from './cover.js';
+import { drawCover, defaultState, layoutPanels, parseSize, roleForPhoto } from './cover.js';
 
 const canvas = document.getElementById('cover');
 const tray = document.getElementById('tray');
@@ -69,8 +69,10 @@ function refreshPhotoUI() {
     thumb.title = photoNames[i];
     thumb.classList.toggle('on', state.panels[state.selected]?.photo === i);
     thumb.addEventListener('click', () => {
-      state.panels[state.selected].photo = i;
-      refreshPhotoUI();
+      const panel = state.panels[state.selected];
+      panel.photo = i;
+      panel.role = roleForPhoto(photoNames[i]);
+      refreshPanelUI();
       redraw();
     });
     tray.appendChild(thumb);
@@ -94,8 +96,9 @@ function refreshPhotoUI() {
 /** Shows the selected panel's controls. */
 function refreshPanelUI() {
   const panel = state.panels[state.selected];
-  const names = { poster: ['Hero', 'Street', 'Night'], grid: ['Top left', 'Top right', 'Bottom left', 'Bottom right'], trio: ['Left', 'Middle', 'Right'] }[state.layout];
+  const names = { poster: ['Hero', 'Top right', 'Bottom right'], grid: ['Top left', 'Top right', 'Bottom left', 'Bottom right'], trio: ['Left', 'Middle', 'Right'] }[state.layout];
   document.getElementById('panelName').textContent = `Panel ${state.selected + 1} — ${names?.[state.selected] ?? ''}`;
+  document.getElementById('role').value = panel.role ?? '';
   document.getElementById('zoom').value = panel.zoom;
   document.getElementById('zoomVal').textContent = `${panel.zoom.toFixed(2)}×`;
   document.getElementById('panX').value = panel.panX;
@@ -119,9 +122,11 @@ bindSegmented('layouts', 'layout', (layout) => {
   state.layout = layout;
   const count = { poster: 3, grid: 4, trio: 3 }[layout];
   while (state.panels.length < count) {
-    state.panels.push({ photo: state.panels[0]?.photo ?? null, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.24 });
+    const photo = state.panels[0]?.photo ?? null;
+    state.panels.push({ photo, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.3, role: roleForPhoto(photoNames[photo] ?? '') });
   }
   state.panels.length = count;
+  state.panels.forEach((p) => { if (!p.role) p.role = roleForPhoto(photoNames[p.photo] ?? ''); });
   state.selected = Math.min(state.selected, count - 1);
   refreshPanelUI();
   redraw();
@@ -138,8 +143,16 @@ bindSegmented('skies', 'sky', (sky) => {
 });
 
 document.getElementById('panelPhoto').addEventListener('change', (e) => {
-  state.panels[state.selected].photo = e.target.value === '' ? null : Number(e.target.value);
-  refreshPhotoUI();
+  const panel = state.panels[state.selected];
+  panel.photo = e.target.value === '' ? null : Number(e.target.value);
+  // A new photo brings its own cast role with it; the user can retype it after.
+  panel.role = roleForPhoto(photoNames[panel.photo] ?? '');
+  refreshPanelUI();
+  redraw();
+});
+
+document.getElementById('role').addEventListener('input', (e) => {
+  state.panels[state.selected].role = e.target.value;
   redraw();
 });
 
@@ -213,6 +226,7 @@ document.getElementById('fillAll').addEventListener('click', () => {
   }
   for (const [i, p] of state.panels.entries()) {
     p.photo = photo;
+    p.role = roleForPhoto(photoNames[photo]);
     const f = REPEAT_FRAMINGS[i % REPEAT_FRAMINGS.length];
     p.zoom = f.zoom;
     p.panX = f.panX;
@@ -232,7 +246,8 @@ document.getElementById('surprise').addEventListener('click', () => {
   state.sky = skies[Math.floor(Math.random() * skies.length)];
   const count = { poster: 3, grid: 4, trio: 3 }[state.layout];
   while (state.panels.length < count) {
-    state.panels.push({ photo: state.panels[0]?.photo ?? null, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.24 });
+    const photo = state.panels[0]?.photo ?? null;
+    state.panels.push({ photo, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.3, role: roleForPhoto(photoNames[photo] ?? '') });
   }
   state.panels.length = count;
   state.selected = Math.min(state.selected, count - 1);
@@ -314,17 +329,20 @@ async function runShot(query) {
   document.getElementById('title').value = state.title;
   document.getElementById('subtitle').value = state.subtitle;
   const count = { poster: 3, grid: 4, trio: 3 }[state.layout];
-  while (state.panels.length < count) state.panels.push({ photo: photoIdx, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.24 });
+  while (state.panels.length < count) state.panels.push({ photo: photoIdx, zoom: 1, panX: 0, panY: 0, grade: 'sunset', anchorY: 0.3, role: '' });
   state.panels.length = count;
-  // Alternate the two sample photos across the panels, so the cover never
-  // repeats the same photo in every panel, and frame each repeat
-  // differently so no two panels show the same shot.
-  const other = photoNames.findIndex((n) => !n.startsWith(photo));
+  // Every panel gets its own photo, dealt round-robin from the `start`
+  // photo, so a cover never repeats the same shot twice. Each panel's role
+  // tag follows its photo, never its slot, and each repeat is framed
+  // differently.
+  const start = Number(query.get('start') ?? 0) || 0;
   state.panels.forEach((p, i) => {
-    p.photo = i % 2 === 0 ? photoIdx : (other >= 0 ? other : photoIdx);
+    p.photo = (start + i) % photos.length;
+    p.role = roleForPhoto(photoNames[p.photo] ?? '');
     p.grade = query.get('grade') ?? p.grade;
   });
   varyRepeatFraming();
+  syncSegments();
   refreshPanelUI();
   // In cover mode the canvas draws at full export size for a crisp shot.
   if (shot === 'cover') {
@@ -342,13 +360,19 @@ async function runShot(query) {
 
 const query = new URLSearchParams(location.search);
 (async () => {
+  // The cast first: four generated portraits, then the two street samples.
+  await addPhoto('samples/cast-queen.jpg', 'cast-queen.jpg');
+  await addPhoto('samples/cast-boss.jpg', 'cast-boss.jpg');
+  await addPhoto('samples/cast-fixer.jpg', 'cast-fixer.jpg');
+  await addPhoto('samples/cast-lookout.jpg', 'cast-lookout.jpg');
   await addPhoto('samples/boulevard.jpg', 'boulevard.jpg');
   await addPhoto('samples/pier.jpg', 'pier.jpg');
   try {
     await document.fonts.load('40px Anton');
+    await document.fonts.load('40px Yellowtail');
     await document.fonts.ready;
   } catch {
-    // The Anton file is local; if it fails the cover still draws in fallback type.
+    // The font files are local; if one fails the cover still draws in fallback type.
   }
   if (query.get('shot')) await runShot(query);
   else {
